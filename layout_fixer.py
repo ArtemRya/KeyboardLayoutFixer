@@ -10,7 +10,7 @@ import pyperclip
 import pyautogui
 
 # --- DEBUG SETTING ---
-DEBUG_MODE = False  # Установил False для повседневного использования
+DEBUG_MODE = False
 # ---------------------
 
 # --- КОНСТАНТЫ ЛИМИТОВ ---
@@ -77,7 +77,8 @@ class PlatformHandler:
 
     @staticmethod
     def select_text_left():
-        modifier_key = Key.cmd if PlatformHandler.is_mac() else Key.ctrl_l
+        # Linux использует Ctrl+Shift+Home
+        modifier_key = Key.ctrl_l if PlatformHandler.is_linux() else Key.cmd
         with kb_controller.pressed(modifier_key):
             with kb_controller.pressed(Key.shift):
                 kb_controller.press(Key.home)
@@ -86,7 +87,7 @@ class PlatformHandler:
 
     @staticmethod
     def copy_selection():
-        modifier_key = Key.cmd if PlatformHandler.is_mac() else Key.ctrl
+        modifier_key = Key.ctrl if PlatformHandler.is_linux() else Key.cmd
         with kb_controller.pressed(modifier_key):
             kb_controller.press('c')
             kb_controller.release('c')
@@ -94,26 +95,22 @@ class PlatformHandler:
 
     @staticmethod
     def paste_text():
-        modifier_key = Key.cmd if PlatformHandler.is_mac() else Key.ctrl
+        modifier_key = Key.ctrl if PlatformHandler.is_linux() else Key.cmd
         with kb_controller.pressed(modifier_key):
             kb_controller.press('v')
             kb_controller.release('v')
         time.sleep(0.05)
 
-    # *** ОБНОВЛЕНО: Стандартизированный метод переключения раскладки через pynput ***
+    # *** ОБНОВЛЕНО: Используем Win+Space (Key.cmd+Key.space) для переключения раскладки ***
     @staticmethod
     def switch_layout():
-        if DEBUG_MODE: print("Switching layout...")
+        if DEBUG_MODE: print("Switching layout (Win+Space)...")
         time.sleep(0.05)
-        if PlatformHandler.is_mac():
-            with kb_controller.pressed(Key.cmd):
-                kb_controller.press(Key.space)
-                kb_controller.release(Key.space)
-        else:  # Linux/Windows (Alt+Shift)
-            with kb_controller.pressed(Key.alt_l):
-                kb_controller.press(Key.shift)
-                kb_controller.release(Key.shift)
-        time.sleep(0.05)  # Небольшая задержка, чтобы система успела сменить раскладку
+        # На Linux/Windows Key.cmd соответствует клавише Super (Win)
+        with kb_controller.pressed(Key.cmd):
+            kb_controller.press(Key.space)
+            kb_controller.release(Key.space)
+        time.sleep(0.05)
 
 
 def is_cyrillic(char): return '\u0400' <= char <= '\u04FF'
@@ -127,22 +124,11 @@ def is_letter(char): return is_cyrillic(char) or is_latin(char)
 
 def find_wrong_layout_boundary(text):
     if not text: return None
-
-    # *** НОВАЯ ЛОГИКА: Ограничение пробелом и длиной ***
-    # Ограничиваем поиск последними 100 символами
     search_text = text[-MAX_CHARS_TO_FIX:]
-
-    # Ищем наличие пробела в этой части
     if ' ' in search_text:
-        # Если пробел есть, берем только текст после последнего пробела
         last_space_index = search_text.rfind(' ')
         search_text = search_text[last_space_index + 1:]
-
-    # Если после обрезки по пробелу текста нет или он пустой, выходим
-    if not search_text:
-        return None
-
-    # Теперь ищем границу внутри search_text (как раньше)
+    if not search_text: return None
     last_letter = next((char for char in reversed(search_text) if is_letter(char)), None)
     if not last_letter: return None
     wrong_is_cyrillic = is_cyrillic(last_letter)
@@ -153,12 +139,8 @@ def find_wrong_layout_boundary(text):
             if (wrong_is_cyrillic and is_latin(char)) or (not wrong_is_cyrillic and is_cyrillic(char)):
                 boundary_pos = i + 1
                 break
-
     wrong_text_relative = search_text[boundary_pos:]
-    if not wrong_text_relative:
-        return None
-
-    # Возвращаем абсолютное положение в исходном тексте, чтобы fix_layout мог обрезать правильно
+    if not wrong_text_relative: return None
     original_boundary_pos = len(text) - len(search_text) + boundary_pos
     return text[original_boundary_pos:]
 
@@ -178,7 +160,6 @@ def fix_layout():
     if DEBUG_MODE: print("\n--- Hotkey pressed: Attempting layout fix ---")
     try:
         original_clipboard = PlatformHandler.get_clipboard()
-
         PlatformHandler.select_text_left()
         time.sleep(0.05)
         PlatformHandler.copy_selection()
@@ -193,7 +174,6 @@ def fix_layout():
         if wrong_text:
             converted_text = convert_layout(wrong_text)
 
-            # Если перевод пустой или такой же, как оригинал, не делаем ничего
             if not converted_text or converted_text == wrong_text:
                 PlatformHandler.set_clipboard(original_clipboard)
                 return
@@ -201,33 +181,30 @@ def fix_layout():
             full_corrected_text = all_text[:len(all_text) - len(wrong_text)] + converted_text
 
             PlatformHandler.set_clipboard(full_corrected_text)
-
-            # Paste the corrected text back into the application
             PlatformHandler.paste_text()
 
-            # *** НОВОЕ: Переключаем раскладку после вставки ***
+            # *** ИСПОЛЬЗУЕМ WIN+SPACE ***
             PlatformHandler.switch_layout()
 
-        PlatformHandler.set_clipboard(original_clipboard)  # Restore original clipboard content
+        PlatformHandler.set_clipboard(original_clipboard)
         if DEBUG_MODE: print("--- Layout fix completed ---")
 
     except Exception as e:
         print(f"An error occurred during layout fixing: {e}")
 
 
-# --- KEYBOARD LISTENER LOGIC (без изменений, кроме сообщения) ---
+# --- KEYBOARD LISTENER LOGIC ---
 
 def on_press(key, injected=False):
-    if injected:
-        return
-
+    if injected: return
     if DEBUG_MODE:
         try:
             print(f"\nUser key pressed: {key.char!r} (Special Key: {key})")
         except AttributeError:
             print(f"\nUser key pressed: {key}")
 
-    if key == keyboard.Key.insert or key == keyboard.Key.pause or key == keyboard.Key.f12:
+    # Горячая клавиша: Insert, Pause или F12
+    if key == keyboard.Key.insert or key == keyboard.Key.pause: # or key == keyboard.Key.f12:
         fix_layout()
 
 
