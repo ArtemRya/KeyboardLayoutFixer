@@ -16,7 +16,7 @@ DEBUG_MODE = True
 pyautogui.FAILSAFE = False
 kb_controller = Controller()
 
-# --- Layout mappings (оставлены без изменений, они были правильными) ---
+# --- Layout mappings (без изменений) ---
 EN_LOWER = "qwertyuiop[]asdfghjkl;'zxcvbnm,./`"
 RU_LOWER = "йцукенгшщзхъфывапролджэячсмитьбю.ё"
 EN_UPPER = "QWERTYUIOP{}ASDFGHJKL:\"ZXCVBNM<>?~"
@@ -32,7 +32,6 @@ EN_TO_RU = str.maketrans(EN_LOWER + EN_UPPER, RU_LOWER + RU_UPPER)
 
 
 class PlatformHandler:
-    # ... (все методы PlatformHandler остаются без изменений) ...
     @staticmethod
     def is_linux():
         return sys.platform.startswith('linux')
@@ -43,6 +42,7 @@ class PlatformHandler:
 
     @staticmethod
     def get_clipboard():
+        # ... (методы буфера обмена остаются прежними) ...
         try:
             text = pyperclip.paste()
             if text: return text
@@ -61,6 +61,7 @@ class PlatformHandler:
 
     @staticmethod
     def set_clipboard(text):
+        # ... (методы буфера обмена остаются прежними) ...
         try:
             pyperclip.copy(text)
         except:
@@ -72,66 +73,47 @@ class PlatformHandler:
             except:
                 pass
 
+    # *** ОБНОВЛЕНО: Используем только pynput.Controller для select_text_left ***
     @staticmethod
     def select_text_left():
-        if PlatformHandler.is_linux():
-            try:
-                subprocess.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+shift+Home'], timeout=0.5)
-                return True
-            except:
-                with kb_controller.pressed(Key.ctrl_l if hasattr(Key, 'ctrl_l') else Key.ctrl):
-                    kb_controller.press(Key.shift)
-                    kb_controller.press(Key.home)
-                    kb_controller.release(Key.home)
-                    kb_controller.release(Key.shift)
-                return True
-        elif PlatformHandler.is_mac():
-            with kb_controller.pressed(Key.cmd if hasattr(Key, 'cmd') else Key.ctrl):
-                kb_controller.press(Key.shift)
+        # Удалены вызовы xdotool, используем только kb_controller (pynput)
+        modifier_key = Key.cmd if PlatformHandler.is_mac() else Key.ctrl_l
+        with kb_controller.pressed(modifier_key):
+            with kb_controller.pressed(Key.shift):
                 kb_controller.press(Key.home)
                 kb_controller.release(Key.home)
-                kb_controller.release(Key.shift)
-            return True
-        return False
+        return True
 
+    # *** ОБНОВЛЕНО: Используем только pynput.Controller для copy_selection ***
     @staticmethod
     def copy_selection():
-        if PlatformHandler.is_mac():
-            with kb_controller.pressed(Key.cmd if hasattr(Key, 'cmd') else Key.ctrl):
-                kb_controller.press('c')
-                kb_controller.release('c')
-        else:
-            with kb_controller.pressed(Key.ctrl):
-                kb_controller.press('c')
-                kb_controller.release('c')
+        modifier_key = Key.cmd if PlatformHandler.is_mac() else Key.ctrl
+        with kb_controller.pressed(modifier_key):
+            kb_controller.press('c')
+            kb_controller.release('c')
         time.sleep(0.05)
 
+    # *** ОБНОВЛЕНО: Используем только pynput.Controller для paste_text ***
     @staticmethod
     def paste_text():
-        if PlatformHandler.is_mac():
-            with kb_controller.pressed(Key.cmd if hasattr(Key, 'cmd') else Key.ctrl):
-                kb_controller.press('v')
-                kb_controller.release('v')
-        else:
-            with kb_controller.pressed(Key.ctrl):
-                kb_controller.press('v')
-                kb_controller.release('v')
+        modifier_key = Key.cmd if PlatformHandler.is_mac() else Key.ctrl
+        with kb_controller.pressed(modifier_key):
+            kb_controller.press('v')
+            kb_controller.release('v')
         time.sleep(0.05)
 
+    # *** ОБНОВЛЕНО: Используем только pynput.Controller для switch_layout ***
     @staticmethod
     def switch_layout():
         time.sleep(0.05)
-        if PlatformHandler.is_linux():
-            try:
-                subprocess.run(['xdotool', 'key', 'alt+shift'], timeout=0.5)
-            except:
-                with kb_controller.pressed(Key.alt_l):
-                    kb_controller.press(Key.shift)
-                    kb_controller.release(Key.shift)
-        elif PlatformHandler.is_mac():
-            with kb_controller.pressed(Key.cmd if hasattr(Key, 'cmd') else Key.ctrl):
+        if PlatformHandler.is_mac():
+            with kb_controller.pressed(Key.cmd):
                 kb_controller.press(Key.space)
                 kb_controller.release(Key.space)
+        else:  # Linux/Windows (Alt+Shift)
+            with kb_controller.pressed(Key.alt_l):
+                kb_controller.press(Key.shift)
+                kb_controller.release(Key.shift)
 
 
 def is_cyrillic(char): return '\u0400' <= char <= '\u04FF'
@@ -174,7 +156,7 @@ def fix_layout():
     if DEBUG_MODE: print("\n--- Hotkey pressed: Attempting layout fix ---")
     try:
         original_clipboard = PlatformHandler.get_clipboard()
-        # ... (остальной код fix_layout без изменений) ...
+
         PlatformHandler.select_text_left()
         time.sleep(0.05)
         PlatformHandler.copy_selection()
@@ -192,9 +174,6 @@ def fix_layout():
             if DEBUG_MODE: print(f"Wrong layout part identified: '{wrong_text}'")
             converted_text = convert_layout(wrong_text)
             full_corrected_text = all_text[:len(all_text) - len(wrong_text)] + converted_text
-            if DEBUG_MODE:
-                print(f"Converted text: '{converted_text}'")
-                print(f"Full corrected text: '{full_corrected_text[:30]}...'")
 
             PlatformHandler.set_clipboard(full_corrected_text)
 
@@ -210,14 +189,12 @@ def fix_layout():
 
 # --- KEYBOARD LISTENER LOGIC ---
 
-# ОБНОВЛЕНО: on_press теперь принимает аргумент 'injected' (внедренный)
 def on_press(key, injected=False):
     """Handles key press events."""
-
-    # Игнорируем нажатия, которые наш собственный скрипт имитировал (чтобы избежать зацикливания)
     if injected:
         if DEBUG_MODE:
-            print(f"Injected key ignored: {key}")
+            # print(f"Injected key ignored: {key}") # Убираем этот вывод, чтобы не засорять консоль
+            pass
         return
 
     if DEBUG_MODE:
@@ -239,7 +216,6 @@ def on_release(key):
 if __name__ == '__main__':
     print(
         f"Layout fixer script started. DEBUG_MODE is {DEBUG_MODE}. Waiting for hotkey (Pause, Insert, or F12) press...")
-    # ОБНОВЛЕНО: Передаем on_press как lambda функцию, чтобы она принимала аргумент injected
     with keyboard.Listener(
             on_press=lambda key, injected=False: on_press(key, injected),
             on_release=on_release) as listener:
