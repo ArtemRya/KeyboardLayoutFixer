@@ -1,24 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Cross-Platform Keyboard Layout Fixer
-Works on Ubuntu (X11/Wayland) and macOS (Intel/Apple Silicon)
-Author: Created with Claude AI
-License: MIT
-
-Dependencies:
-    pip install pynput pyperclip pyautogui
-
-Ubuntu additional:
-    sudo apt install wl-clipboard xdotool (for X11/Wayland)
-
-macOS additional:
-    No additional tools needed
-
-AUTOSTART:
-    Ubuntu: Save as ~/.config/autostart/layout-fixer.desktop
-    macOS: Save as ~/Library/LaunchAgents/com.user.layoutfixer.plist
-"""
 import sys
 import subprocess
 import platform
@@ -28,22 +9,30 @@ from pynput.keyboard import Controller, Key
 import pyperclip
 import pyautogui
 
+# --- DEBUG SETTING ---
+DEBUG_MODE = True  # Установите True для отладки, False для обычной работы
+# ---------------------
+
 # Disable pyautogui fail-safe (optional)
 pyautogui.FAILSAFE = False
 
 kb_controller = Controller()
 
-# Layout mappings
-RU_TO_EN = str.maketrans(
-    "йцукенгшщзхъфывапролджэячсмитьбю.ёЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ,Ё",
-    "qwertyuiop[]asdfghjkl;'zxcvbnm,./`QWERTYUIOP{}ASDFGHJKL:\"ZXCVBNM<>?~"
-)
+# --- Layout mappings ---
+EN_LOWER = "qwertyuiop[]asdfghjkl;'zxcvbnm,./`"
+RU_LOWER = "йцукенгшщзхъфывапролджэячсмитьбю.ё"
+EN_UPPER = "QWERTYUIOP{}ASDFGHJKL:\"ZXCVBNM<>?~"
+RU_UPPER = "ЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ,Ё"
 
-EN_TO_RU = str.maketrans(
-    "qwertyuiop[]asdfghjkl;'zxcvbnm,./`QWERTYUIOP{}ASDFGHJKL:\"ZXCVBNM<>?~",
-    "йцукенгшщзхъфывапролджэячсмитьбю.ёЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ,Ё"
-)
+if len(EN_LOWER) != len(RU_LOWER) or len(EN_UPPER) != len(RU_UPPER):
+    print("FATAL ERROR: Keyboard mapping strings have unequal lengths.")
+    sys.exit(1)
 
+RU_TO_EN = str.maketrans(RU_LOWER + RU_UPPER, EN_LOWER + EN_UPPER)
+EN_TO_RU = str.maketrans(EN_LOWER + EN_UPPER, RU_LOWER + RU_UPPER)
+
+
+# -------------------------
 
 class PlatformHandler:
     """Platform-specific operations"""
@@ -56,29 +45,19 @@ class PlatformHandler:
     def is_mac():
         return sys.platform == 'darwin'
 
+    # ... (методы get_clipboard, set_clipboard, select_text_left, copy_selection, paste_text, switch_layout остаются без изменений) ...
     @staticmethod
     def get_clipboard():
-        """Universal clipboard getter"""
         try:
-            # Try pyperclip first
             text = pyperclip.paste()
-            if text:
-                return text
-
-            # Fallback for Linux
+            if text: return text
             if PlatformHandler.is_linux():
                 try:
-                    # Try wl-clipboard (Wayland)
-                    result = subprocess.run(['wl-paste'],
-                                            capture_output=True, text=True, timeout=0.5)
-                    if result.stdout:
-                        return result.stdout
-
-                    # Try xclip (X11)
-                    result = subprocess.run(['xclip', '-selection', 'clipboard', '-o'],
-                                            capture_output=True, text=True, timeout=0.5)
-                    if result.stdout:
-                        return result.stdout
+                    result = subprocess.run(['wl-paste'], capture_output=True, text=True, timeout=0.5)
+                    if result.stdout: return result.stdout
+                    result = subprocess.run(['xclip', '-selection', 'clipboard', '-o'], capture_output=True, text=True,
+                                            timeout=0.5)
+                    if result.stdout: return result.stdout
                 except:
                     pass
         except:
@@ -87,13 +66,11 @@ class PlatformHandler:
 
     @staticmethod
     def set_clipboard(text):
-        """Universal clipboard setter"""
         try:
             pyperclip.copy(text)
         except:
             try:
                 if PlatformHandler.is_linux():
-                    # Try wl-copy (Wayland)
                     subprocess.run(['wl-copy'], input=text.encode('utf-8'), timeout=0.5)
                 elif PlatformHandler.is_mac():
                     subprocess.run(['pbcopy'], input=text.encode('utf-8'), timeout=0.5)
@@ -102,15 +79,11 @@ class PlatformHandler:
 
     @staticmethod
     def select_text_left():
-        """Select text from cursor to line start"""
         if PlatformHandler.is_linux():
             try:
-                # Try X11 first
-                subprocess.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+shift+Home'],
-                               timeout=0.5)
+                subprocess.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+shift+Home'], timeout=0.5)
                 return True
             except:
-                # Fallback to pyautogui for Wayland
                 with kb_controller.pressed(Key.ctrl_l if hasattr(Key, 'ctrl_l') else Key.ctrl):
                     kb_controller.press(Key.shift)
                     kb_controller.press(Key.home)
@@ -128,14 +101,11 @@ class PlatformHandler:
 
     @staticmethod
     def copy_selection():
-        """Copy selected text"""
         if PlatformHandler.is_mac():
-            # macOS uses Cmd+C
             with kb_controller.pressed(Key.cmd if hasattr(Key, 'cmd') else Key.ctrl):
                 kb_controller.press('c')
                 kb_controller.release('c')
         else:
-            # Linux/Windows use Ctrl+C
             with kb_controller.pressed(Key.ctrl):
                 kb_controller.press('c')
                 kb_controller.release('c')
@@ -143,14 +113,11 @@ class PlatformHandler:
 
     @staticmethod
     def paste_text():
-        """Paste text"""
         if PlatformHandler.is_mac():
-            # macOS uses Cmd+V
             with kb_controller.pressed(Key.cmd if hasattr(Key, 'cmd') else Key.ctrl):
                 kb_controller.press('v')
                 kb_controller.release('v')
         else:
-            # Linux/Windows use Ctrl+V
             with kb_controller.pressed(Key.ctrl):
                 kb_controller.press('v')
                 kb_controller.release('v')
@@ -158,84 +125,53 @@ class PlatformHandler:
 
     @staticmethod
     def switch_layout():
-        """Switch keyboard layout (simulate Alt+Shift or Cmd+Space)"""
         time.sleep(0.05)
         if PlatformHandler.is_linux():
-            # Linux layout switch
             try:
                 subprocess.run(['xdotool', 'key', 'alt+shift'], timeout=0.5)
             except:
-                # Simulate Alt+Shift
                 with kb_controller.pressed(Key.alt_l):
                     kb_controller.press(Key.shift)
                     kb_controller.release(Key.shift)
         elif PlatformHandler.is_mac():
-            # macOS layout switch (Cmd+Space)
             with kb_controller.pressed(Key.cmd if hasattr(Key, 'cmd') else Key.ctrl):
                 kb_controller.press(Key.space)
                 kb_controller.release(Key.space)
 
 
 def is_cyrillic(char):
-    """Check if character is Cyrillic"""
     return '\u0400' <= char <= '\u04FF'
 
 
 def is_latin(char):
-    """Check if character is Latin"""
     char_lower = char.lower()
     return 'a' <= char_lower <= 'z'
 
 
 def is_letter(char):
-    """Check if character is a letter"""
     return is_cyrillic(char) or is_latin(char)
 
 
 def find_wrong_layout_boundary(text):
-    """Find boundary where layout changes"""
-    if not text:
-        return None
-
-    # Find the rightmost letter
-    last_letter = None
-    for char in reversed(text):
-        if is_letter(char):
-            last_letter = char
-            break
-
-    if not last_letter:
-        return None
-
-    # Determine what layout is "wrong" (last letter's layout)
+    if not text: return None
+    last_letter = next((char for char in reversed(text) if is_letter(char)), None)
+    if not last_letter: return None
     wrong_is_cyrillic = is_cyrillic(last_letter)
-
-    # Find where the layout changes
     boundary_pos = 0
     for i in range(len(text) - 1, -1, -1):
         char = text[i]
         if is_letter(char):
-            if wrong_is_cyrillic and is_latin(char):
+            if (wrong_is_cyrillic and is_latin(char)) or (not wrong_is_cyrillic and is_cyrillic(char)):
                 boundary_pos = i + 1
                 break
-            if not wrong_is_cyrillic and is_cyrillic(char):
-                boundary_pos = i + 1
-                break
-
     wrong_text = text[boundary_pos:]
     return wrong_text if wrong_text else None
 
 
 def convert_layout(text):
-    """Convert text between RU and EN layouts"""
-    if not text:
-        return text
-
-    # Find first letter to determine layout
+    if not text: return text
     first_letter = next((c for c in text if is_letter(c)), None)
-    if not first_letter:
-        return text
-
+    if not first_letter: return text
     if is_cyrillic(first_letter):
         return text.translate(RU_TO_EN)
     else:
@@ -243,10 +179,13 @@ def convert_layout(text):
 
 
 def fix_layout():
-    """Main function to fix keyboard layout"""
+    """Main function to fix keyboard layout triggered by the hotkey"""
+    if DEBUG_MODE:
+        print("\n--- Hotkey pressed: Attempting layout fix ---")
     try:
-        # Save original clipboard
         original_clipboard = PlatformHandler.get_clipboard()
+        if DEBUG_MODE:
+            print(f"Original clipboard: '{original_clipboard[:30]}...'")
 
         # Select text from cursor to start of line
         PlatformHandler.select_text_left()
@@ -256,119 +195,64 @@ def fix_layout():
         PlatformHandler.copy_selection()
         time.sleep(0.1)
 
-        # Get the text
         all_text = PlatformHandler.get_clipboard()
+        if DEBUG_MODE:
+            print(f"Selected text ('all_text'): '{all_text[:30]}...'")
 
         if not all_text or all_text == original_clipboard:
+            if DEBUG_MODE:
+                print("No new text selected or clipboard is empty. Exiting fix_layout.")
             PlatformHandler.set_clipboard(original_clipboard)
             return
 
-        # Find wrong layout part
         wrong_text = find_wrong_layout_boundary(all_text)
-        if not wrong_text:
-            PlatformHandler.set_clipboard(original_clipboard)
-            return
+        if wrong_text:
+            if DEBUG_MODE:
+                print(f"Wrong layout part identified: '{wrong_text}'")
+            converted_text = convert_layout(wrong_text)
+            full_corrected_text = all_text[:len(all_text) - len(wrong_text)] + converted_text
 
-        # Convert wrong part
-        fixed_text = convert_layout(wrong_text)
-        boundary_pos = len(all_text) - len(wrong_text)
-        correct_part = all_text[:boundary_pos]
-        result_text = correct_part + fixed_text
+            if DEBUG_MODE:
+                print(f"Converted text: '{converted_text}'")
+                print(f"Full corrected text: '{full_corrected_text[:30]}...'")
 
-        # Put result to clipboard and paste
-        PlatformHandler.set_clipboard(result_text)
-        PlatformHandler.paste_text()
+            PlatformHandler.set_clipboard(full_corrected_text)
 
-        # Restore original clipboard
-        time.sleep(0.05)
-        PlatformHandler.set_clipboard(original_clipboard)
+            # Paste the corrected text back into the application
+            PlatformHandler.paste_text()
 
-        # Switch layout to correct one
-        PlatformHandler.switch_layout()
+        PlatformHandler.set_clipboard(original_clipboard)  # Restore original clipboard content
+        if DEBUG_MODE:
+            print("--- Layout fix completed ---")
 
     except Exception as e:
-        print(f"Error in fix_layout: {e}")
+        print(f"An error occurred during layout fixing: {e}")
 
 
-def on_activate():
-    """Hotkey activation handler"""
-    try:
+# --- KEYBOARD LISTENER LOGIC ---
+
+def on_press(key):
+    """Handles key press events."""
+    if DEBUG_MODE:
+        # Выводит код клавиши при каждом нажатии
+        try:
+            print(f"Key pressed: {key.char!r} (Special Key: {key})")
+        except AttributeError:
+            print(f"Key pressed: {key}")
+
+    # Check if the 'Break' or 'Pause' key was pressed
+    if key == keyboard.Key.break_space or key == keyboard.Key.pause or key == keyboard.Key.f12:
         fix_layout()
-    except Exception as e:
-        print(f"Error: {e}")
 
 
-def check_dependencies():
-    """Check and install dependencies"""
-    system = platform.system()
-
-    print(f"System: {system} {platform.machine()}")
-
-    if system == "Linux":
-        # Check for Wayland or X11
-        session_type = subprocess.run(
-            ['echo', '$XDG_SESSION_TYPE'],
-            capture_output=True, text=True, shell=True
-        ).stdout.strip()
-
-        print(f"Session type: {session_type}")
-
-        # Check for wl-clipboard (Wayland)
-        if 'wayland' in session_type.lower():
-            try:
-                subprocess.run(['which', 'wl-copy'], check=True)
-                subprocess.run(['which', 'wl-paste'], check=True)
-            except:
-                print("For Wayland support, install wl-clipboard:")
-                print("sudo apt install wl-clipboard")
-                return False
-
-        # Check for xclip/xdotool (X11 fallback)
-        try:
-            subprocess.run(['which', 'xdotool'], check=True)
-        except:
-            print("Install xdotool for X11 support:")
-            print("sudo apt install xdotool")
-            # Continue anyway, we have fallbacks
-
-    return True
+def on_release(key):
+    pass
 
 
-def main():
-    """Main function"""
-    print("Cross-Platform Keyboard Layout Fixer")
-    print("Press Pause/Break or Scroll Lock to fix layout")
-    print("Press Ctrl+C to exit\n")
-
-    if not check_dependencies():
-        print("Some dependencies missing, but will try to continue...")
-
-    # Define hotkeys based on platform
-    if PlatformHandler.is_mac():
-        # macOS doesn't have Pause/ScrollLock, use F13-F15
-        hotkey_map = {
-            '<f13>': on_activate,  # Often unused function key
-            '<f14>': on_activate,
-        }
-    else:
-        # Linux/Windows use standard keys
-        hotkey_map = {
-            '<pause>': on_activate,
-            '<scroll_lock>': on_activate,
-        }
-
-    # Add Ctrl+Alt+L as universal hotkey
-    hotkey_map['<ctrl>+<alt>+l'] = on_activate
-
-    # Start hotkey listener
-    with keyboard.GlobalHotKeys(hotkey_map) as hotkey:
-        try:
-            hotkey.join()
-        except KeyboardInterrupt:
-            print("\nExiting...")
-        except Exception as e:
-            print(f"Error: {e}")
-
-
-if __name__ == "__main__":
-    main()
+# Setup and start the listener
+if __name__ == '__main__':
+    print(f"Layout fixer script started. DEBUG_MODE is {DEBUG_MODE}. Waiting for 'Break' key press...")
+    with keyboard.Listener(
+            on_press=on_press,
+            on_release=on_release) as listener:
+        listener.join()
