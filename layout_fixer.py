@@ -229,20 +229,26 @@ def fix_layout():
         print(f"An error occurred during layout fixing: {e}")
 
 
+# ... (весь остальной код скрипта остается прежним до функций on_press) ...
+
 # --- KEYBOARD LISTENER LOGIC ---
 
 def on_press(key):
     """Handles key press events."""
     if DEBUG_MODE:
-        # Выводит код клавиши при каждом нажатии
         try:
             print(f"Key pressed: {key.char!r} (Special Key: {key})")
         except AttributeError:
+            # Это сработает для специальных клавиш
             print(f"Key pressed: {key}")
 
-    # Check if the 'Break' or 'Pause' key was pressed
-    if key == keyboard.Key.break_space or key == keyboard.Key.pause or key == keyboard.Key.f12:
+    # *** ИЗМЕНЕНО: Убрали 'break_space'. Используем 'pause' или 'insert' или 'f12' ***
+    # Используйте одну из этих клавиш в качестве горячей:
+    if key == keyboard.Key.pause or key == keyboard.Key.insert or key == keyboard.Key.f12:
         fix_layout()
+
+    # Если вы хотите использовать комбинацию (например, Ctrl + Insert),
+    # логика pynput усложняется, но для одиночной клавиши так проще.
 
 
 def on_release(key):
@@ -251,7 +257,9 @@ def on_release(key):
 
 # Setup and start the listener
 if __name__ == '__main__':
-    print(f"Layout fixer script started. DEBUG_MODE is {DEBUG_MODE}. Waiting for 'Break' key press...")
+    # Также обновим сообщение при запуске
+    print(
+        f"Layout fixer script started. DEBUG_MODE is {DEBUG_MODE}. Waiting for hotkey (Pause, Insert, or F12) press...")
     with keyboard.Listener(
             on_press=on_press,
             on_release=on_release) as listener:
