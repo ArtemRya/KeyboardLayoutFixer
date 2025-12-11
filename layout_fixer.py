@@ -13,9 +13,10 @@ import pyautogui
 DEBUG_MODE = False
 # ---------------------
 
-# --- КОНСТАНТЫ ЛИМИТОВ ---
+# --- КОНСТАНТЫ ЛИМИТОВ И ОПЦИЙ ---
 MAX_CHARS_TO_FIX = 100
-# -------------------------
+BREAK_ON_SPACE = False  # Установите False, чтобы переводить всю строку до лимита
+# ---------------------------------
 
 pyautogui.FAILSAFE = False
 kb_controller = Controller()
@@ -77,7 +78,6 @@ class PlatformHandler:
 
     @staticmethod
     def select_text_left():
-        # Linux использует Ctrl+Shift+Home
         modifier_key = Key.ctrl_l if PlatformHandler.is_linux() else Key.cmd
         with kb_controller.pressed(modifier_key):
             with kb_controller.pressed(Key.shift):
@@ -101,12 +101,10 @@ class PlatformHandler:
             kb_controller.release('v')
         time.sleep(0.05)
 
-    # *** ОБНОВЛЕНО: Используем Win+Space (Key.cmd+Key.space) для переключения раскладки ***
     @staticmethod
     def switch_layout():
         if DEBUG_MODE: print("Switching layout (Win+Space)...")
         time.sleep(0.05)
-        # На Linux/Windows Key.cmd соответствует клавише Super (Win)
         with kb_controller.pressed(Key.cmd):
             kb_controller.press(Key.space)
             kb_controller.release(Key.space)
@@ -122,12 +120,15 @@ def is_latin(char): char_lower = char.lower(); return 'a' <= char_lower <= 'z'
 def is_letter(char): return is_cyrillic(char) or is_latin(char)
 
 
+# *** ОБНОВЛЕНО: Добавлена логика BREAK_ON_SPACE ***
 def find_wrong_layout_boundary(text):
     if not text: return None
     search_text = text[-MAX_CHARS_TO_FIX:]
-    if ' ' in search_text:
+
+    if BREAK_ON_SPACE and ' ' in search_text:
         last_space_index = search_text.rfind(' ')
         search_text = search_text[last_space_index + 1:]
+
     if not search_text: return None
     last_letter = next((char for char in reversed(search_text) if is_letter(char)), None)
     if not last_letter: return None
@@ -141,6 +142,8 @@ def find_wrong_layout_boundary(text):
                 break
     wrong_text_relative = search_text[boundary_pos:]
     if not wrong_text_relative: return None
+
+    # Корректируем индекс относительно оригинального текста
     original_boundary_pos = len(text) - len(search_text) + boundary_pos
     return text[original_boundary_pos:]
 
@@ -183,7 +186,6 @@ def fix_layout():
             PlatformHandler.set_clipboard(full_corrected_text)
             PlatformHandler.paste_text()
 
-            # *** ИСПОЛЬЗУЕМ WIN+SPACE ***
             PlatformHandler.switch_layout()
 
         PlatformHandler.set_clipboard(original_clipboard)
@@ -203,8 +205,7 @@ def on_press(key, injected=False):
         except AttributeError:
             print(f"\nUser key pressed: {key}")
 
-    # Горячая клавиша: Insert, Pause или F12
-    if key == keyboard.Key.insert or key == keyboard.Key.pause: # or key == keyboard.Key.f12:
+    if key == keyboard.Key.insert or key == keyboard.Key.pause:
         fix_layout()
 
 
