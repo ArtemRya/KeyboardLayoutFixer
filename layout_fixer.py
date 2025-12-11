@@ -10,33 +10,29 @@ import pyperclip
 import pyautogui
 
 # --- DEBUG SETTING ---
-DEBUG_MODE = True  # Установите True для отладки, False для обычной работы
+DEBUG_MODE = True
 # ---------------------
 
-# Disable pyautogui fail-safe (optional)
 pyautogui.FAILSAFE = False
-
 kb_controller = Controller()
 
-# --- Layout mappings ---
+# --- Layout mappings (оставлены без изменений, они были правильными) ---
 EN_LOWER = "qwertyuiop[]asdfghjkl;'zxcvbnm,./`"
 RU_LOWER = "йцукенгшщзхъфывапролджэячсмитьбю.ё"
 EN_UPPER = "QWERTYUIOP{}ASDFGHJKL:\"ZXCVBNM<>?~"
 RU_UPPER = "ЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ,Ё"
-
 if len(EN_LOWER) != len(RU_LOWER) or len(EN_UPPER) != len(RU_UPPER):
     print("FATAL ERROR: Keyboard mapping strings have unequal lengths.")
     sys.exit(1)
-
 RU_TO_EN = str.maketrans(RU_LOWER + RU_UPPER, EN_LOWER + EN_UPPER)
 EN_TO_RU = str.maketrans(EN_LOWER + EN_UPPER, RU_LOWER + RU_UPPER)
 
 
-# -------------------------
+# ----------------------------------------------------------------------
+
 
 class PlatformHandler:
-    """Platform-specific operations"""
-
+    # ... (все методы PlatformHandler остаются без изменений) ...
     @staticmethod
     def is_linux():
         return sys.platform.startswith('linux')
@@ -45,7 +41,6 @@ class PlatformHandler:
     def is_mac():
         return sys.platform == 'darwin'
 
-    # ... (методы get_clipboard, set_clipboard, select_text_left, copy_selection, paste_text, switch_layout остаются без изменений) ...
     @staticmethod
     def get_clipboard():
         try:
@@ -139,17 +134,13 @@ class PlatformHandler:
                 kb_controller.release(Key.space)
 
 
-def is_cyrillic(char):
-    return '\u0400' <= char <= '\u04FF'
+def is_cyrillic(char): return '\u0400' <= char <= '\u04FF'
 
 
-def is_latin(char):
-    char_lower = char.lower()
-    return 'a' <= char_lower <= 'z'
+def is_latin(char): char_lower = char.lower(); return 'a' <= char_lower <= 'z'
 
 
-def is_letter(char):
-    return is_cyrillic(char) or is_latin(char)
+def is_letter(char): return is_cyrillic(char) or is_latin(char)
 
 
 def find_wrong_layout_boundary(text):
@@ -180,38 +171,27 @@ def convert_layout(text):
 
 def fix_layout():
     """Main function to fix keyboard layout triggered by the hotkey"""
-    if DEBUG_MODE:
-        print("\n--- Hotkey pressed: Attempting layout fix ---")
+    if DEBUG_MODE: print("\n--- Hotkey pressed: Attempting layout fix ---")
     try:
         original_clipboard = PlatformHandler.get_clipboard()
-        if DEBUG_MODE:
-            print(f"Original clipboard: '{original_clipboard[:30]}...'")
-
-        # Select text from cursor to start of line
+        # ... (остальной код fix_layout без изменений) ...
         PlatformHandler.select_text_left()
         time.sleep(0.05)
-
-        # Copy selected text
         PlatformHandler.copy_selection()
         time.sleep(0.1)
-
         all_text = PlatformHandler.get_clipboard()
-        if DEBUG_MODE:
-            print(f"Selected text ('all_text'): '{all_text[:30]}...'")
+        if DEBUG_MODE: print(f"Selected text ('all_text'): '{all_text[:30]}...'")
 
         if not all_text or all_text == original_clipboard:
-            if DEBUG_MODE:
-                print("No new text selected or clipboard is empty. Exiting fix_layout.")
+            if DEBUG_MODE: print("No new text selected or clipboard is empty. Exiting fix_layout.")
             PlatformHandler.set_clipboard(original_clipboard)
             return
 
         wrong_text = find_wrong_layout_boundary(all_text)
         if wrong_text:
-            if DEBUG_MODE:
-                print(f"Wrong layout part identified: '{wrong_text}'")
+            if DEBUG_MODE: print(f"Wrong layout part identified: '{wrong_text}'")
             converted_text = convert_layout(wrong_text)
             full_corrected_text = all_text[:len(all_text) - len(wrong_text)] + converted_text
-
             if DEBUG_MODE:
                 print(f"Converted text: '{converted_text}'")
                 print(f"Full corrected text: '{full_corrected_text[:30]}...'")
@@ -222,33 +202,33 @@ def fix_layout():
             PlatformHandler.paste_text()
 
         PlatformHandler.set_clipboard(original_clipboard)  # Restore original clipboard content
-        if DEBUG_MODE:
-            print("--- Layout fix completed ---")
+        if DEBUG_MODE: print("--- Layout fix completed ---")
 
     except Exception as e:
         print(f"An error occurred during layout fixing: {e}")
 
 
-# ... (весь остальной код скрипта остается прежним до функций on_press) ...
-
 # --- KEYBOARD LISTENER LOGIC ---
 
-def on_press(key):
+# ОБНОВЛЕНО: on_press теперь принимает аргумент 'injected' (внедренный)
+def on_press(key, injected=False):
     """Handles key press events."""
+
+    # Игнорируем нажатия, которые наш собственный скрипт имитировал (чтобы избежать зацикливания)
+    if injected:
+        if DEBUG_MODE:
+            print(f"Injected key ignored: {key}")
+        return
+
     if DEBUG_MODE:
         try:
-            print(f"Key pressed: {key.char!r} (Special Key: {key})")
+            print(f"\nUser key pressed: {key.char!r} (Special Key: {key})")
         except AttributeError:
-            # Это сработает для специальных клавиш
-            print(f"Key pressed: {key}")
+            print(f"\nUser key pressed: {key}")
 
-    # *** ИЗМЕНЕНО: Убрали 'break_space'. Используем 'pause' или 'insert' или 'f12' ***
-    # Используйте одну из этих клавиш в качестве горячей:
-    if key == keyboard.Key.pause or key == keyboard.Key.insert or key == keyboard.Key.f12:
+    # Проверяем горячую клавишу
+    if key == keyboard.Key.insert or key == keyboard.Key.pause or key == keyboard.Key.f12:
         fix_layout()
-
-    # Если вы хотите использовать комбинацию (например, Ctrl + Insert),
-    # логика pynput усложняется, но для одиночной клавиши так проще.
 
 
 def on_release(key):
@@ -257,10 +237,10 @@ def on_release(key):
 
 # Setup and start the listener
 if __name__ == '__main__':
-    # Также обновим сообщение при запуске
     print(
         f"Layout fixer script started. DEBUG_MODE is {DEBUG_MODE}. Waiting for hotkey (Pause, Insert, or F12) press...")
+    # ОБНОВЛЕНО: Передаем on_press как lambda функцию, чтобы она принимала аргумент injected
     with keyboard.Listener(
-            on_press=on_press,
+            on_press=lambda key, injected=False: on_press(key, injected),
             on_release=on_release) as listener:
         listener.join()
