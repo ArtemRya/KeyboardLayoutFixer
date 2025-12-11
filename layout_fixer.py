@@ -8,6 +8,7 @@ from pynput import keyboard
 from pynput.keyboard import Controller, Key
 import pyperclip
 import pyautogui
+import re
 
 # --- DEBUG SETTING ---
 DEBUG_MODE = False
@@ -111,6 +112,9 @@ class PlatformHandler:
         time.sleep(0.05)
 
 
+# ... (весь остальной код скрипта до функции find_wrong_layout_boundary остается прежним) ...
+
+
 def is_cyrillic(char): return '\u0400' <= char <= '\u04FF'
 
 
@@ -120,32 +124,44 @@ def is_latin(char): char_lower = char.lower(); return 'a' <= char_lower <= 'z'
 def is_letter(char): return is_cyrillic(char) or is_latin(char)
 
 
+# *** ИСПРАВЛЕНО: Логика BREAK_ON_SPACE с сохранением завершающих пробелов и опциональностью ***
 def find_wrong_layout_boundary(text):
     if not text: return None
 
-    # 1. Отделяем завершающие пробелы
+    # 1. Отделяем завершающие пробельные символы (используем isspace() для точности)
     trailing_spaces = ""
-    if text.endswith(' '):
-        rstripped_text = text.rstrip(' ')
-        trailing_spaces = text[len(rstripped_text):]
-        text = rstripped_text
+    for i in range(len(text) - 1, -1, -1):
+        if text[i].isspace():
+            trailing_spaces = text[i] + trailing_spaces
+        else:
+            break
 
-    # Если текст без пробелов пустой, значит, были только пробелы.
+    text = text[:len(text) - len(trailing_spaces)]
+
     if not text:
         return None
 
     # Ограничиваем поиск последними 100 символами
-    search_text = text[-MAX_CHARS_TO_FIX:]
+    search_text_limited = text[-MAX_CHARS_TO_FIX:]
 
-    if BREAK_ON_SPACE and ' ' in search_text:
-        # Если пробел есть, берем только текст после последнего пробела
-        last_space_index = search_text.rfind(' ')
-        search_text = search_text[last_space_index + 1:]
+    start_pos_relative_to_limited = 0
 
-    # Если после обрезки по пробелу текста нет или он пустой, выходим
-    if not search_text:
-        # Если мы обрезали все из-за пробела, возвращаем None, т.к. переводить нечего
-        return None
+    if BREAK_ON_SPACE:
+        # Ищем позицию последнего пробельного символа в ограниченном тексте
+        last_space_index = -1
+        for i in range(len(search_text_limited) - 1, -1, -1):
+            if search_text_limited[i].isspace():
+                last_space_index = i
+                break
+
+        if last_space_index != -1:
+            # Если нашли пробел, начинаем обработку сразу после него
+            start_pos_relative_to_limited = last_space_index + 1
+
+    # Обрезаем search_text_limited с учетом найденного начала слова (или с начала лимита, если BREAK_ON_SPACE=False)
+    search_text = search_text_limited[start_pos_relative_to_limited:]
+
+    if not search_text: return None
 
     # Теперь ищем границу внутри search_text (как раньше)
     last_letter = next((char for char in reversed(search_text) if is_letter(char)), None)
@@ -162,9 +178,9 @@ def find_wrong_layout_boundary(text):
     wrong_text_relative = search_text[boundary_pos:]
     if not wrong_text_relative: return None
 
-    # Возвращаем абсолютное положение в исходном тексте, чтобы fix_layout мог обрезать правильно,
-    # и добавляем завершающие пробелы обратно к возвращаемому тексту.
-    original_boundary_pos = len(text) - len(search_text) + boundary_pos
+    # Рассчитываем абсолютную позицию в оригинальном тексте
+    len_text_before_limited_part = len(text) - len(search_text_limited)
+    original_boundary_pos = len_text_before_limited_part + start_pos_relative_to_limited + boundary_pos
 
     # Возвращаем часть текста для перевода + сохраненные завершающие пробелы
     return text[original_boundary_pos:] + trailing_spaces
