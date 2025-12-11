@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+Cross-Platform Keyboard Layout Fixer
+Works on Ubuntu (X11) and macOS
+"""
 import sys
 import subprocess
 import platform
@@ -16,25 +20,30 @@ DEBUG_MODE = False
 
 # --- КОНСТАНТЫ ЛИМИТОВ И ОПЦИЙ ---
 MAX_CHARS_TO_FIX = 100
-BREAK_ON_SPACE = True  # Установите False, чтобы переводить всю строку до лимита
+BREAK_ON_SPACE = True
 # ---------------------------------
+
+# *** ПАРАМЕТРИЗАЦИЯ ГОРЯЧИХ КЛАВИШ ***
+# Используем список объектов Key для горячих клавиш
+HOTKEYS = [keyboard.Key.pause, keyboard.Key.scroll_lock]
+# ------------------------------------
 
 pyautogui.FAILSAFE = False
 kb_controller = Controller()
 
-# --- Layout mappings (без изменений) ---
+# --- Layout mappings ---
 EN_LOWER = "qwertyuiop[]asdfghjkl;'zxcvbnm,./`"
 RU_LOWER = "йцукенгшщзхъфывапролджэячсмитьбю.ё"
 EN_UPPER = "QWERTYUIOP{}ASDFGHJKL:\"ZXCVBNM<>?~"
 RU_UPPER = "ЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ,Ё"
-if len(EN_LOWER) != len(RU_LOWER) or len(EN_UPPER) != len(RU_UPPER):
+if len(EN_LOWER) != len(RU_LOWER) or len(EN_UPPER) != len(EN_UPPER):
     print("FATAL ERROR: Keyboard mapping strings have unequal lengths.")
     sys.exit(1)
 RU_TO_EN = str.maketrans(RU_LOWER + RU_UPPER, EN_LOWER + EN_UPPER)
 EN_TO_RU = str.maketrans(EN_LOWER + EN_UPPER, RU_LOWER + RU_UPPER)
 
 
-# ----------------------------------------------------------------------
+# ---------------------------------
 
 
 class PlatformHandler:
@@ -112,9 +121,6 @@ class PlatformHandler:
         time.sleep(0.05)
 
 
-# ... (весь остальной код скрипта до функции find_wrong_layout_boundary остается прежним) ...
-
-
 def is_cyrillic(char): return '\u0400' <= char <= '\u04FF'
 
 
@@ -124,65 +130,52 @@ def is_latin(char): char_lower = char.lower(); return 'a' <= char_lower <= 'z'
 def is_letter(char): return is_cyrillic(char) or is_latin(char)
 
 
-# *** ИСПРАВЛЕНО: Логика BREAK_ON_SPACE с сохранением завершающих пробелов и опциональностью ***
 def find_wrong_layout_boundary(text):
     if not text: return None
 
-    # 1. Отделяем завершающие пробельные символы (используем isspace() для точности)
     trailing_spaces = ""
     for i in range(len(text) - 1, -1, -1):
         if text[i].isspace():
             trailing_spaces = text[i] + trailing_spaces
         else:
             break
-
     text = text[:len(text) - len(trailing_spaces)]
+    if not text: return None
 
-    if not text:
-        return None
-
-    # Ограничиваем поиск последними 100 символами
     search_text_limited = text[-MAX_CHARS_TO_FIX:]
-
     start_pos_relative_to_limited = 0
-
     if BREAK_ON_SPACE:
-        # Ищем позицию последнего пробельного символа в ограниченном тексте
         last_space_index = -1
         for i in range(len(search_text_limited) - 1, -1, -1):
-            if search_text_limited[i].isspace():
-                last_space_index = i
-                break
+            if search_text_limited[i].isspace(): last_space_index = i; break
+        if last_space_index != -1: start_pos_relative_to_limited = last_space_index + 1
 
-        if last_space_index != -1:
-            # Если нашли пробел, начинаем обработку сразу после него
-            start_pos_relative_to_limited = last_space_index + 1
+    # Текст, который потенциально нужно исправить
+    text_to_check = search_text_limited[start_pos_relative_to_limited:]
+    if not text_to_check: return None
 
-    # Обрезаем search_text_limited с учетом найденного начала слова (или с начала лимита, если BREAK_ON_SPACE=False)
-    search_text = search_text_limited[start_pos_relative_to_limited:]
+    # *** Улучшенная логика определения границы ***
+    wrong_layout_start_index_relative = 0
+    first_letter = next((c for c in text_to_check if is_letter(c)), None)
 
-    if not search_text: return None
+    if first_letter:
+        is_first_cyrillic = is_cyrillic(first_letter)
+        for i, char in enumerate(text_to_check):
+            if is_letter(char):
+                # Если текущая буква в другой раскладке, чем первая буква, то досюда было правильно
+                if (is_first_cyrillic and is_latin(char)) or (not is_first_cyrillic and is_cyrillic(char)):
+                    wrong_layout_start_index_relative = i
+                    break
+            # Символы вроде №№ игнорируются при поиске смены раскладки
 
-    # Теперь ищем границу внутри search_text (как раньше)
-    last_letter = next((char for char in reversed(search_text) if is_letter(char)), None)
-    if not last_letter: return None
-    wrong_is_cyrillic = is_cyrillic(last_letter)
-    boundary_pos = 0
-    for i in range(len(search_text) - 1, -1, -1):
-        char = search_text[i]
-        if is_letter(char):
-            if (wrong_is_cyrillic and is_latin(char)) or (not wrong_is_cyrillic and is_cyrillic(char)):
-                boundary_pos = i + 1
-                break
-
-    wrong_text_relative = search_text[boundary_pos:]
+    wrong_text_relative = text_to_check[wrong_layout_start_index_relative:]
     if not wrong_text_relative: return None
 
     # Рассчитываем абсолютную позицию в оригинальном тексте
     len_text_before_limited_part = len(text) - len(search_text_limited)
-    original_boundary_pos = len_text_before_limited_part + start_pos_relative_to_limited + boundary_pos
 
-    # Возвращаем часть текста для перевода + сохраненные завершающие пробелы
+    original_boundary_pos = len_text_before_limited_part + start_pos_relative_to_limited + wrong_layout_start_index_relative
+
     return text[original_boundary_pos:] + trailing_spaces
 
 
@@ -206,54 +199,49 @@ def fix_layout():
         PlatformHandler.copy_selection()
         time.sleep(0.1)
         all_text = PlatformHandler.get_clipboard()
-
         if not all_text or all_text == original_clipboard:
-            PlatformHandler.set_clipboard(original_clipboard)
+            PlatformHandler.set_clipboard(original_clipboard);
             return
-
         wrong_text = find_wrong_layout_boundary(all_text)
         if wrong_text:
             converted_text = convert_layout(wrong_text)
-
             if not converted_text or converted_text == wrong_text:
-                PlatformHandler.set_clipboard(original_clipboard)
+                PlatformHandler.set_clipboard(original_clipboard);
                 return
-
             full_corrected_text = all_text[:len(all_text) - len(wrong_text)] + converted_text
-
             PlatformHandler.set_clipboard(full_corrected_text)
             PlatformHandler.paste_text()
-
             PlatformHandler.switch_layout()
-
         PlatformHandler.set_clipboard(original_clipboard)
         if DEBUG_MODE: print("--- Layout fix completed ---")
-
     except Exception as e:
         print(f"An error occurred during layout fixing: {e}")
 
 
 # --- KEYBOARD LISTENER LOGIC ---
 
+# on_press теперь не поглощает клавиши и не ждет возврата False
 def on_press(key, injected=False):
     if injected: return
-    if DEBUG_MODE:
-        try:
-            print(f"\nUser key pressed: {key.char!r} (Special Key: {key})")
-        except AttributeError:
-            print(f"\nUser key pressed: {key}")
-
-    if key == keyboard.Key.insert or key == keyboard.Key.pause:
-        fix_layout()
+    # Просто выводим для отладки, если нужно
+    # if DEBUG_MODE:
+    #     try: print(f"\nUser key pressed: {key.char!r} (Special Key: {key})")
+    #     except AttributeError: print(f"\nUser key pressed: {key}")
+    pass
 
 
 def on_release(key):
+    # Запускаем исправление, когда клавиша отпущена.
+    # Это позволяет ОС обработать нажатие клавиши Pause/Scroll Lock до нашего вмешательства.
+    if key in HOTKEYS:
+        fix_layout()
     pass
 
 
 if __name__ == '__main__':
-    print(f"Layout fixer script started. Waiting for hotkey (Pause, Insert) press...")
+    hotkey_names = ", ".join([h.name for h in HOTKEYS])
+    print(f"Layout fixer script started. Waiting for hotkey ({hotkey_names}) press...")
     with keyboard.Listener(
-            on_press=lambda key, injected=False: on_press(key, injected),
+            on_press=on_press,
             on_release=on_release) as listener:
         listener.join()
