@@ -236,7 +236,7 @@ def on_release(key):
 
 
 if __name__ == '__main__':
-    print(f"Layout fixer script started. Waiting for hotkey (Pause, Insert, or F12) press...")
+    print(f"Layout fixer script started. Waiting for hotkey (Pause, Insert) press...")
     with keyboard.Listener(
             on_press=lambda key, injected=False: on_press(key, injected),
             on_release=on_release) as listener:
