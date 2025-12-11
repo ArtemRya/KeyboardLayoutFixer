@@ -15,7 +15,7 @@ DEBUG_MODE = False
 
 # --- КОНСТАНТЫ ЛИМИТОВ И ОПЦИЙ ---
 MAX_CHARS_TO_FIX = 100
-BREAK_ON_SPACE = False  # Установите False, чтобы переводить всю строку до лимита
+BREAK_ON_SPACE = True  # Установите False, чтобы переводить всю строку до лимита
 # ---------------------------------
 
 pyautogui.FAILSAFE = False
@@ -120,16 +120,34 @@ def is_latin(char): char_lower = char.lower(); return 'a' <= char_lower <= 'z'
 def is_letter(char): return is_cyrillic(char) or is_latin(char)
 
 
-# *** ОБНОВЛЕНО: Добавлена логика BREAK_ON_SPACE ***
 def find_wrong_layout_boundary(text):
     if not text: return None
+
+    # 1. Отделяем завершающие пробелы
+    trailing_spaces = ""
+    if text.endswith(' '):
+        rstripped_text = text.rstrip(' ')
+        trailing_spaces = text[len(rstripped_text):]
+        text = rstripped_text
+
+    # Если текст без пробелов пустой, значит, были только пробелы.
+    if not text:
+        return None
+
+    # Ограничиваем поиск последними 100 символами
     search_text = text[-MAX_CHARS_TO_FIX:]
 
     if BREAK_ON_SPACE and ' ' in search_text:
+        # Если пробел есть, берем только текст после последнего пробела
         last_space_index = search_text.rfind(' ')
         search_text = search_text[last_space_index + 1:]
 
-    if not search_text: return None
+    # Если после обрезки по пробелу текста нет или он пустой, выходим
+    if not search_text:
+        # Если мы обрезали все из-за пробела, возвращаем None, т.к. переводить нечего
+        return None
+
+    # Теперь ищем границу внутри search_text (как раньше)
     last_letter = next((char for char in reversed(search_text) if is_letter(char)), None)
     if not last_letter: return None
     wrong_is_cyrillic = is_cyrillic(last_letter)
@@ -140,12 +158,16 @@ def find_wrong_layout_boundary(text):
             if (wrong_is_cyrillic and is_latin(char)) or (not wrong_is_cyrillic and is_cyrillic(char)):
                 boundary_pos = i + 1
                 break
+
     wrong_text_relative = search_text[boundary_pos:]
     if not wrong_text_relative: return None
 
-    # Корректируем индекс относительно оригинального текста
+    # Возвращаем абсолютное положение в исходном тексте, чтобы fix_layout мог обрезать правильно,
+    # и добавляем завершающие пробелы обратно к возвращаемому тексту.
     original_boundary_pos = len(text) - len(search_text) + boundary_pos
-    return text[original_boundary_pos:]
+
+    # Возвращаем часть текста для перевода + сохраненные завершающие пробелы
+    return text[original_boundary_pos:] + trailing_spaces
 
 
 def convert_layout(text):
