@@ -10,8 +10,12 @@ import pyperclip
 import pyautogui
 
 # --- DEBUG SETTING ---
-DEBUG_MODE = True
+DEBUG_MODE = False  # Установил False для повседневного использования
 # ---------------------
+
+# --- КОНСТАНТЫ ЛИМИТОВ ---
+MAX_CHARS_TO_FIX = 100
+# -------------------------
 
 pyautogui.FAILSAFE = False
 kb_controller = Controller()
@@ -42,7 +46,6 @@ class PlatformHandler:
 
     @staticmethod
     def get_clipboard():
-        # ... (методы буфера обмена остаются прежними) ...
         try:
             text = pyperclip.paste()
             if text: return text
@@ -61,7 +64,6 @@ class PlatformHandler:
 
     @staticmethod
     def set_clipboard(text):
-        # ... (методы буфера обмена остаются прежними) ...
         try:
             pyperclip.copy(text)
         except:
@@ -73,10 +75,8 @@ class PlatformHandler:
             except:
                 pass
 
-    # *** ОБНОВЛЕНО: Используем только pynput.Controller для select_text_left ***
     @staticmethod
     def select_text_left():
-        # Удалены вызовы xdotool, используем только kb_controller (pynput)
         modifier_key = Key.cmd if PlatformHandler.is_mac() else Key.ctrl_l
         with kb_controller.pressed(modifier_key):
             with kb_controller.pressed(Key.shift):
@@ -84,7 +84,6 @@ class PlatformHandler:
                 kb_controller.release(Key.home)
         return True
 
-    # *** ОБНОВЛЕНО: Используем только pynput.Controller для copy_selection ***
     @staticmethod
     def copy_selection():
         modifier_key = Key.cmd if PlatformHandler.is_mac() else Key.ctrl
@@ -93,7 +92,6 @@ class PlatformHandler:
             kb_controller.release('c')
         time.sleep(0.05)
 
-    # *** ОБНОВЛЕНО: Используем только pynput.Controller для paste_text ***
     @staticmethod
     def paste_text():
         modifier_key = Key.cmd if PlatformHandler.is_mac() else Key.ctrl
@@ -102,9 +100,10 @@ class PlatformHandler:
             kb_controller.release('v')
         time.sleep(0.05)
 
-    # *** ОБНОВЛЕНО: Используем только pynput.Controller для switch_layout ***
+    # *** ОБНОВЛЕНО: Стандартизированный метод переключения раскладки через pynput ***
     @staticmethod
     def switch_layout():
+        if DEBUG_MODE: print("Switching layout...")
         time.sleep(0.05)
         if PlatformHandler.is_mac():
             with kb_controller.pressed(Key.cmd):
@@ -114,6 +113,7 @@ class PlatformHandler:
             with kb_controller.pressed(Key.alt_l):
                 kb_controller.press(Key.shift)
                 kb_controller.release(Key.shift)
+        time.sleep(0.05)  # Небольшая задержка, чтобы система успела сменить раскладку
 
 
 def is_cyrillic(char): return '\u0400' <= char <= '\u04FF'
@@ -127,18 +127,40 @@ def is_letter(char): return is_cyrillic(char) or is_latin(char)
 
 def find_wrong_layout_boundary(text):
     if not text: return None
-    last_letter = next((char for char in reversed(text) if is_letter(char)), None)
+
+    # *** НОВАЯ ЛОГИКА: Ограничение пробелом и длиной ***
+    # Ограничиваем поиск последними 100 символами
+    search_text = text[-MAX_CHARS_TO_FIX:]
+
+    # Ищем наличие пробела в этой части
+    if ' ' in search_text:
+        # Если пробел есть, берем только текст после последнего пробела
+        last_space_index = search_text.rfind(' ')
+        search_text = search_text[last_space_index + 1:]
+
+    # Если после обрезки по пробелу текста нет или он пустой, выходим
+    if not search_text:
+        return None
+
+    # Теперь ищем границу внутри search_text (как раньше)
+    last_letter = next((char for char in reversed(search_text) if is_letter(char)), None)
     if not last_letter: return None
     wrong_is_cyrillic = is_cyrillic(last_letter)
     boundary_pos = 0
-    for i in range(len(text) - 1, -1, -1):
-        char = text[i]
+    for i in range(len(search_text) - 1, -1, -1):
+        char = search_text[i]
         if is_letter(char):
             if (wrong_is_cyrillic and is_latin(char)) or (not wrong_is_cyrillic and is_cyrillic(char)):
                 boundary_pos = i + 1
                 break
-    wrong_text = text[boundary_pos:]
-    return wrong_text if wrong_text else None
+
+    wrong_text_relative = search_text[boundary_pos:]
+    if not wrong_text_relative:
+        return None
+
+    # Возвращаем абсолютное положение в исходном тексте, чтобы fix_layout мог обрезать правильно
+    original_boundary_pos = len(text) - len(search_text) + boundary_pos
+    return text[original_boundary_pos:]
 
 
 def convert_layout(text):
@@ -162,23 +184,29 @@ def fix_layout():
         PlatformHandler.copy_selection()
         time.sleep(0.1)
         all_text = PlatformHandler.get_clipboard()
-        if DEBUG_MODE: print(f"Selected text ('all_text'): '{all_text[:30]}...'")
 
         if not all_text or all_text == original_clipboard:
-            if DEBUG_MODE: print("No new text selected or clipboard is empty. Exiting fix_layout.")
             PlatformHandler.set_clipboard(original_clipboard)
             return
 
         wrong_text = find_wrong_layout_boundary(all_text)
         if wrong_text:
-            if DEBUG_MODE: print(f"Wrong layout part identified: '{wrong_text}'")
             converted_text = convert_layout(wrong_text)
+
+            # Если перевод пустой или такой же, как оригинал, не делаем ничего
+            if not converted_text or converted_text == wrong_text:
+                PlatformHandler.set_clipboard(original_clipboard)
+                return
+
             full_corrected_text = all_text[:len(all_text) - len(wrong_text)] + converted_text
 
             PlatformHandler.set_clipboard(full_corrected_text)
 
             # Paste the corrected text back into the application
             PlatformHandler.paste_text()
+
+            # *** НОВОЕ: Переключаем раскладку после вставки ***
+            PlatformHandler.switch_layout()
 
         PlatformHandler.set_clipboard(original_clipboard)  # Restore original clipboard content
         if DEBUG_MODE: print("--- Layout fix completed ---")
@@ -187,14 +215,10 @@ def fix_layout():
         print(f"An error occurred during layout fixing: {e}")
 
 
-# --- KEYBOARD LISTENER LOGIC ---
+# --- KEYBOARD LISTENER LOGIC (без изменений, кроме сообщения) ---
 
 def on_press(key, injected=False):
-    """Handles key press events."""
     if injected:
-        if DEBUG_MODE:
-            # print(f"Injected key ignored: {key}") # Убираем этот вывод, чтобы не засорять консоль
-            pass
         return
 
     if DEBUG_MODE:
@@ -203,7 +227,6 @@ def on_press(key, injected=False):
         except AttributeError:
             print(f"\nUser key pressed: {key}")
 
-    # Проверяем горячую клавишу
     if key == keyboard.Key.insert or key == keyboard.Key.pause or key == keyboard.Key.f12:
         fix_layout()
 
@@ -212,10 +235,8 @@ def on_release(key):
     pass
 
 
-# Setup and start the listener
 if __name__ == '__main__':
-    print(
-        f"Layout fixer script started. DEBUG_MODE is {DEBUG_MODE}. Waiting for hotkey (Pause, Insert, or F12) press...")
+    print(f"Layout fixer script started. Waiting for hotkey (Pause, Insert, or F12) press...")
     with keyboard.Listener(
             on_press=lambda key, injected=False: on_press(key, injected),
             on_release=on_release) as listener:
